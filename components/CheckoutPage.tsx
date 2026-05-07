@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import {
   useStripe,
   useElements,
-  PaymentElement,
   ExpressCheckoutElement,
 } from "@stripe/react-stripe-js";
 import convertToSubcurrency from "@/lib/convertToSubcurrency";
@@ -28,11 +27,38 @@ const CheckoutPage = ({ amount }: { amount: number }) => {
       .then((data) => setClientSecret(data.clientSecret));
   }, [amount]);
 
+  const getReturnUrl = () => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    const url = new URL("/payment-success", window.location.origin);
+    url.searchParams.set("amount", String(amount));
+    return url.toString();
+  };
+
+  const confirmCurrentPayment = async () => {
+    if (!stripe || !elements || !clientSecret) {
+      return { errorMessage: "Payment is not ready yet." };
+    }
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      clientSecret,
+      confirmParams: {
+        return_url: getReturnUrl(),
+      },
+    });
+
+    return { errorMessage: error?.message };
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
 
     if (!stripe || !elements) {
+      setLoading(false);
       return;
     }
 
@@ -44,18 +70,11 @@ const CheckoutPage = ({ amount }: { amount: number }) => {
       return;
     }
 
-    const { error } = await stripe.confirmPayment({
-      elements,
-      clientSecret,
-      confirmParams: {
-        return_url: `http://www.localhost:3000/payment-success?amount=${amount}`,
-      },
-    });
-
-    if (error) {
+    const { errorMessage: confirmErrorMessage } = await confirmCurrentPayment();
+    if (confirmErrorMessage) {
       // This point is only reached if there's an immediate error when
       // confirming the payment. Show the error to your customer (for example, payment details incomplete)
-      setErrorMessage(error.message);
+      setErrorMessage(confirmErrorMessage);
     } else {
       // The payment UI automatically closes with a success animation.
       // Your customer is redirected to your `return_url`.
@@ -78,7 +97,19 @@ const CheckoutPage = ({ amount }: { amount: number }) => {
       </div>
     );
   }
-  const handleExpressPayment = () => {}
+  const handleExpressPayment = async (event: {
+    paymentFailed?: (payload: { reason?: "fail" | "invalid_shipping_address"; message: string }) => void;
+  }) => {
+    setLoading(true);
+    const { errorMessage: confirmErrorMessage } = await confirmCurrentPayment();
+
+    if (confirmErrorMessage) {
+      setErrorMessage(confirmErrorMessage);
+      event.paymentFailed?.({ reason: "fail", message: confirmErrorMessage });
+    }
+
+    setLoading(false);
+  };
 
   return (
     <form onSubmit={handleSubmit} className="bg-white p-2 rounded-md">
