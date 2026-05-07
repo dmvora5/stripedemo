@@ -5,7 +5,9 @@ import {
   useStripe,
   useElements,
   ExpressCheckoutElement,
+  PaymentElement,
 } from "@stripe/react-stripe-js";
+import type { StripeExpressCheckoutElementOptions } from "@stripe/stripe-js";
 import convertToSubcurrency from "@/lib/convertToSubcurrency";
 
 const CheckoutPage = ({ amount }: { amount: number }) => {
@@ -28,11 +30,19 @@ const CheckoutPage = ({ amount }: { amount: number }) => {
   }, [amount]);
 
   const getReturnUrl = () => {
-    if (typeof window === "undefined") {
-      return "";
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    const origin =
+      appUrl && appUrl.trim().length > 0
+        ? appUrl
+        : typeof window !== "undefined"
+          ? window.location.origin
+          : "";
+
+    if (!origin) {
+      throw new Error("Missing app origin for Stripe return URL.");
     }
 
-    const url = new URL("/payment-success", window.location.origin);
+    const url = new URL("/payment-success", origin);
     url.searchParams.set("amount", String(amount));
     return url.toString();
   };
@@ -111,15 +121,24 @@ const CheckoutPage = ({ amount }: { amount: number }) => {
     setLoading(false);
   };
 
+  const expressCheckoutOptions = {
+    buttonType: { applePay: "buy", googlePay: "buy" },
+    // Runtime supports this option; older stripe-js type definitions can lag behind.
+    paymentMethods: { applePay: "always", googlePay: "always" },
+  } as unknown as StripeExpressCheckoutElementOptions;
+
   return (
     <form onSubmit={handleSubmit} className="bg-white p-2 rounded-md">
-      {clientSecret && <ExpressCheckoutElement
-      onConfirm={handleExpressPayment}
-      options={{
-        buttonType: {applePay: 'buy', googlePay: 'buy'}
-      }}
-       
-       />}
+      {clientSecret && (
+        <ExpressCheckoutElement
+          onConfirm={handleExpressPayment}
+          options={expressCheckoutOptions}
+        />
+      )}
+
+      <div className="mt-4">
+        <PaymentElement options={{ layout: "accordion" }} />
+      </div>
 
       {errorMessage && <div>{errorMessage}</div>}
 
